@@ -1,8 +1,12 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import Title from '../../components/Title'
 import { assets } from '../../assets/assets'
+import { useAppContext } from '../../conext/AppContext'
+import toast from 'react-hot-toast'
 
 const AddRoom = () => {
+  const { axios, getAuthHeaders, fetchRooms, navigate } = useAppContext()
+
   const [images, setImages] = useState({
     1: null,
     2: null,
@@ -19,12 +23,76 @@ const AddRoom = () => {
       'Room Service': false,
       'Mountain View': false,
       'Pool Access': false,
-
     },
   })
 
+  const [loading, setLoading] = useState(false)
+
+  const onSubmitHandler = async (event) => {
+    event.preventDefault()
+
+    if (!inputs.roomType) {
+      toast.error('Please select a room type')
+      return
+    }
+
+    if (!inputs.pricePerNight || Number(inputs.pricePerNight) <= 0) {
+      toast.error('Please enter a valid price')
+      return
+    }
+
+    const selectedImages = Object.values(images).filter(Boolean)
+    if (selectedImages.length === 0) {
+      toast.error('Please upload at least one image')
+      return
+    }
+
+    const amenities = Object.keys(inputs.amenities).filter(
+      (key) => inputs.amenities[key]
+    )
+
+    if (amenities.length === 0) {
+      toast.error('Please select at least one amenity')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const headers = await getAuthHeaders()
+      if (!headers) {
+        toast.error('Please sign in first')
+        return
+      }
+
+      const formData = new FormData()
+      formData.append('roomType', inputs.roomType)
+      formData.append('pricePerNight', inputs.pricePerNight)
+      formData.append('amenities', JSON.stringify(amenities))
+
+      selectedImages.forEach((file) => {
+        formData.append('images', file)
+      })
+
+      const { data } = await axios.post('/api/rooms', formData, { headers })
+
+      if (data.success) {
+        toast.success(data.message)
+        await fetchRooms()
+        navigate('/owner/list-room')
+      } else {
+        toast.error(data.message)
+      }
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || error.message || 'Failed to add room'
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <form>
+    <form onSubmit={onSubmitHandler}>
       <Title
         align='left'
         font='outfit'
@@ -32,7 +100,6 @@ const AddRoom = () => {
         subTitle='Fill in the details carefully and accurate room details, pricing, and amenities, to enhance the user booking experience.'
       />
 
-      {/* Upload Area For Images */}
       <p className='text-gray-800 mt-10'>Images</p>
 
       <div className='grid grid-cols-2 sm:flex gap-4 my-2 flex-wrap'>
@@ -77,6 +144,7 @@ const AddRoom = () => {
               })
             }
             className='border opacity-70 border-gray-300 mt-1 rounded p-2 w-full'
+            required
           >
             <option value=''>Select Room Type</option>
             <option value='Single Bed'>Single Bed</option>
@@ -102,6 +170,8 @@ const AddRoom = () => {
                 pricePerNight: e.target.value,
               })
             }
+            required
+            min={1}
           />
         </div>
       </div>
@@ -126,18 +196,17 @@ const AddRoom = () => {
               }
             />
 
-            <label htmlFor={`amenities${index + 1}`}>
-              {amenity}
-            </label>
+            <label htmlFor={`amenities${index + 1}`}>{amenity}</label>
           </div>
         ))}
       </div>
 
       <button
         type='submit'
-        className='bg-primary text-white px-8 py-2 rounded mt-8 cursor-pointer'
+        disabled={loading}
+        className='bg-primary text-white px-8 py-2 rounded mt-8 cursor-pointer disabled:opacity-60'
       >
-        Add Room
+        {loading ? 'Saving...' : 'Add Room'}
       </button>
     </form>
   )

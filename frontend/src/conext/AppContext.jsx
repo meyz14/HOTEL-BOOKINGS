@@ -2,6 +2,7 @@ import axios from "axios";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth, useUser } from "@clerk/clerk-react";
+import toast from "react-hot-toast";
 
 axios.defaults.baseURL = import.meta.env.VITE_BACKEND_URL;
 
@@ -19,18 +20,18 @@ export const AppProvider = ({ children }) => {
   const [rooms, setRooms] = useState([])
   const fetchUserRequestId = useRef(0);
 
-  const fetchRooms = async () =>{
-      try {
-        const {data} = await axios.get('/api/rooms')
-        if (data.success){
-          setRooms(data.rooms)
-        }else{
-          toast.error(data.message)
-        }
-      } catch (error) {
-        toast.error(error.message)
+  const fetchRooms = useCallback(async () => {
+    try {
+      const { data } = await axios.get("/api/rooms");
+      if (data.success) {
+        setRooms(data.rooms || []);
+      } else {
+        toast.error(data.message);
       }
-  }
+    } catch (error) {
+      toast.error(error.message || "Failed to load rooms");
+    }
+  }, []);
 
   const getSessionToken = useCallback(async () => {
     if (!isLoaded || !isSignedIn || !userId) return null;
@@ -113,6 +114,7 @@ export const AppProvider = ({ children }) => {
     setSearchedCities,
     fetchUser,
     getAuthHeaders,
+    fetchRooms,
     rooms,
     setRooms,
   };

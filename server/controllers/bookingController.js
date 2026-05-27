@@ -1,4 +1,3 @@
-import { getAuth } from "@clerk/express";
 import Booking from "../models/Booking.js";
 import Room from "../models/Room.js";
 import Hotel from "../models/Hotel.js";
@@ -62,6 +61,14 @@ export const createBooking = async (req, res) => {
     // Get room data
     const roomData = await Room.findById(room).populate("hotel");
 
+    if (!roomData) {
+      return res.json({ success: false, message: "Room not found" });
+    }
+
+    if (!roomData.isAvailable) {
+      return res.json({ success: false, message: "Room is not available" });
+    }
+
     let totalPrice = roomData.pricePerNight;
 
     // Calculate nights
@@ -77,8 +84,8 @@ export const createBooking = async (req, res) => {
     // Create booking
     const booking = await Booking.create({
       user,
-      room,
-      hotel: roomData.hotel._id,
+      room: String(room),
+      hotel: String(roomData.hotel._id),
       guests: +guests,
       checkInDate,
       checkOutDate,
@@ -115,7 +122,7 @@ export const getUserBookings = async (req, res) => {
 // API to get hotel bookings + dashboard data
 export const getHotelBookings = async (req, res) => {
   try {
-    const hotel = await Hotel.findOne({ owner: getAuth(req).userId });
+    const hotel = await Hotel.findOne({ owner: req.user._id });
 
     if (!hotel) {
       return res.json({ success: false, message: "No Hotel found" });
@@ -151,13 +158,29 @@ export const stripePayment = async (req, res) => {
 
     const booking = await Booking.findById(bookingId);
 
-    const roomData = await Room.findById(
-      booking.room
-    ).populate('hotel');
+    if (!booking) {
+      return res.json({ success: false, message: "Booking not found" });
+    }
 
-    const totalPrice = booking.totalPrice;
+    if (String(booking.user) !== String(req.user._id)) {
+      return res.json({ success: false, message: "Unauthorized" });
+    }
+
+    if (booking.isPaid) {
+      return res.json({ success: false, message: "Booking is already paid" });
+    }
+
+    const roomData = await Room.findById(booking.room).populate("hotel");
+
+    if (!roomData?.hotel) {
+      return res.json({ success: false, message: "Room not found" });
+    }
 
     const { origin } = req.headers;
+
+    if (!origin) {
+      return res.json({ success: false, message: "Missing request origin" });
+    }
 
     const stripeInstance = new stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -168,32 +191,81 @@ export const stripePayment = async (req, res) => {
           product_data: {
             name: roomData.hotel.name,
           },
-          unit_amount: totalPrice * 100,
+          unit_amount: Math.round(booking.totalPrice * 100),
         },
         quantity: 1,
       },
     ];
 
-  // Create Checkout Session
-const session = await stripeInstance.checkout.sessions.create({
-  line_items,
-  mode: "payment",
-  success_url: `${origin}/loader/my-bookings`,
-  cancel_url: `${origin}/my-bookings`,
-  metadata: {
-    bookingId,
-  },
-});
+    const session = await stripeInstance.checkout.sessions.create({
+      line_items,
+      mode: "payment",
+      success_url: `${origin}/loader/my-bookings?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/my-bookings`,
+      metadata: {
+        bookingId: String(bookingId),
+      },
+    });
 
-res.json({
-  success: true,
-  url: session.url,
-});
+    res.json({
+      success: true,
+      url: session.url,
+    });
+  } catch (error) {
+    console.error("stripePayment error:", error.message);
+    res.json({
+      success: false,
+      message: "Payment Failed",
+    });
+  }
+};
 
-} catch (error) {
-  res.json({
-    success: false,
-    message: "Payment Failed",
-  });
-}
+// Fallback: confirm payment when user returns from Stripe (if webhook is delayed)
+// GET /api/bookings/verify-payment?session_id=cs_...
+export const verifyStripePayment = async (req, res) => {
+  try {
+    const { session_id: sessionId } = req.query;
+
+    if (!sessionId) {
+      return res.json({ success: false, message: "Missing session_id" });
+    }
+
+    const stripeInstance = new stripe(process.env.STRIPE_SECRET_KEY);
+    const session = await stripeInstance.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status !== "paid") {
+      return res.json({ success: false, message: "Payment not completed" });
+    }
+
+    const bookingId = session.metadata?.bookingId;
+
+    if (!bookingId) {
+      return res.json({ success: false, message: "Invalid checkout session" });
+    }
+
+    const booking = await Booking.findById(bookingId);
+
+    if (!booking) {
+      return res.json({ success: false, message: "Booking not found" });
+    }
+
+    if (String(booking.user) !== String(req.user._id)) {
+      return res.json({ success: false, message: "Unauthorized" });
+    }
+
+    const updated = await Booking.findByIdAndUpdate(
+      bookingId,
+      {
+        isPaid: true,
+        paymentMethod: "Stripe",
+        status: "confirmed",
+      },
+      { new: true }
+    );
+
+    res.json({ success: true, booking: updated });
+  } catch (error) {
+    console.error("verifyStripePayment error:", error.message);
+    res.json({ success: false, message: "Could not verify payment" });
+  }
 };

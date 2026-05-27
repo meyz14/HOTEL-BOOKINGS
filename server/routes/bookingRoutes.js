@@ -5,6 +5,7 @@ import {
   getHotelBookings,
   getUserBookings,
   stripePayment,
+  verifyStripePayment,
 } from "../controllers/bookingController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -16,5 +17,6 @@ bookingRouter.get("/user", protect, getUserBookings);
 bookingRouter.get("/hotel", protect, getHotelBookings);
 
 bookingRouter.post("/stripe-payment", protect, stripePayment);
+bookingRouter.get("/verify-payment", protect, verifyStripePayment);
 
 export default bookingRouter;

@@ -114,6 +114,8 @@ const resolveAuth = async (req) => {
     const payload = await verifyToken(bearer, {
       secretKey: process.env.CLERK_SECRET_KEY,
       authorizedParties: AUTHORIZED_PARTIES,
+      // Tolerate ~1–2 min clock drift between PC and Clerk (nbf errors in dev)
+      clockSkewInMs: 120_000,
     });
     if (payload?.sub) {
       return { userId: payload.sub, sessionClaims: payload };

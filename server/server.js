@@ -1,6 +1,7 @@
 import express from "express";
 import "dotenv/config";
 import cors from "cors";
+import mongoose from "mongoose";
 import connectDB from "./configs/db.js";
 import { clerkMiddleware } from "@clerk/express";
 import { clerkMiddlewareOptions, AUTHORIZED_PARTIES } from "./configs/clerkAuth.js";
@@ -36,6 +37,18 @@ app.use(clerkMiddleware(clerkMiddlewareOptions));
 app.use("/api/clerk", clerkWebhooks);
 
 app.get("/", (req, res) => res.send("API is working"));
+
+app.get("/api/health", (req, res) => {
+  const dbState = ["disconnected", "connected", "connecting", "disconnecting"][
+    mongoose.connection.readyState
+  ];
+  res.json({
+    success: true,
+    database: dbState,
+    dbName: mongoose.connection.name || null,
+  });
+});
+
 app.use('/api/user', userRouter)
 app.use('/api/hotels', hotelRouter)
 app.use('/api/rooms', roomRouter)
